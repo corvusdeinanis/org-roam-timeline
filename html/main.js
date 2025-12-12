@@ -49,22 +49,46 @@ timeline.on('select', function (properties) {
 
 function handleNodeSelect(item) {
     currentSelectedId = item.id;
+
     const panel = document.getElementById('preview-panel');
     document.getElementById('preview-title').innerText = item.content;
     const contentBox = document.getElementById('preview-content');
+    
+    // Show spinner
     contentBox.innerHTML = "<div style='text-align:center; padding:20px; color:#666;'><i class='fas fa-spinner fa-spin'></i> Loading...</div>";
     panel.classList.add('open');
 
+    console.log(`Requesting content for ID: ${item.id}`);
+
     fetch(`/content?id=${item.id}`)
-        .then(res => res.text())
+        .then(res => {
+            // Check if Emacs returned an error code (e.g., 500 or 404)
+            if (!res.ok) {
+                throw new Error(`Server Error: ${res.status} ${res.statusText}`);
+            }
+            return res.text();
+        })
         .then(html => {
-            contentBox.innerHTML = html;
-            if (window.MathJax) {
-                MathJax.typesetPromise([contentBox]);
+            console.log("Content received, length:", html.length);
+            
+            // Safety check: Did we get actual HTML or an empty string?
+            if (html.trim().length === 0) {
+                contentBox.innerHTML = "<p><i>(Node has no content)</i></p>";
+            } else {
+                contentBox.innerHTML = html;
+                // Render MathJax if loaded
+                if (window.MathJax) {
+                    MathJax.typesetPromise([contentBox]).catch(err => console.log(err));
+                }
             }
         })
         .catch(err => {
-            contentBox.innerHTML = "<p>Error loading content.</p>";
+            console.error("Fetch failed:", err);
+            // PRINT THE ERROR TO THE SCREEN so you can see it
+            contentBox.innerHTML = `<div style="color:red; padding:10px; border:1px solid red; background:#fff5f5;">
+                <strong>Failed to load content.</strong><br/>
+                ${err.message}
+            </div>`;
         });
 
     highlightNetwork(item);

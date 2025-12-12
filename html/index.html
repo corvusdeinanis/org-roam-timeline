@@ -7,7 +7,6 @@
     <link href="style.css" rel="stylesheet" type="text/css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
-    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
@@ -19,7 +18,6 @@
         <h3>Filter Tags</h3>
         <button onclick="toggleSidebar()" class="close-btn">&times;</button>
     </div>
-
     <div class="sidebar-controls">
         <input type="text" id="tag-search" placeholder="Search tags..." onkeyup="filterTagList()">
         <div class="bulk-buttons">
@@ -27,9 +25,7 @@
             <button onclick="toggleAll(false)">None</button>
         </div>
     </div>
-
     <div id="filter-list"></div>
-    
     <div class="sidebar-footer">
         <button onclick="loadData()" class="refresh-btn">Reload Data</button>
     </div>
@@ -54,23 +50,58 @@
 <script src="main.js"></script>
 
 <script>
-    document.getElementById('preview-content').addEventListener('click', function(e) {
-        const link = e.target.closest('a');
-        if (!link) return;
-        const href = link.getAttribute('href');
-        if (href && href.startsWith('id:')) {
-            e.preventDefault();
-            const id = href.replace('id:', '');
-            const item = rawData.get(id);
-            if (item) {
-                timeline.setSelection(id, { focus: true });
-                handleNodeSelect(item);
-            } else {
-                fetch(`/open?id=${id}`);
-            }
-        }
-    });
+  // Advanced Link Handler
+  document.getElementById('preview-content').addEventListener('click', function(e) {
+      // Find the closest anchor tag
+      const link = e.target.closest('a');
+      if (!link) return;
+
+      const href = link.getAttribute('href');
+      if (!href) return;
+
+      console.log("Clicked link:", href);
+
+      let targetId = null;
+
+      // CASE 1: Clean "id:uuid" links (Backlinks & Internal)
+      if (href.startsWith('id:')) {
+          targetId = href.replace('id:', '');
+      }
+      // CASE 2: Messy "file.html#ID-uuid" links (Standard Export)
+      // Matches anything ending in #ID-uuid or just #uuid
+      else if (href.includes('#')) {
+          // Extract the hash part
+          const hash = href.split('#')[1];
+          // Remove "ID-" prefix if present
+          targetId = hash.replace(/^ID-/, '');
+      }
+
+      if (targetId) {
+          e.preventDefault(); // Stop browser from redirecting
+          console.log("Extracted ID:", targetId);
+
+          // Check if this node exists in our timeline data
+          const item = rawData.get(targetId);
+          
+          if (item) {
+              // SCENARIO A: Node is on the timeline -> Jump to it
+              console.log("Node found on timeline. Selecting...");
+              timeline.setSelection(targetId, { focus: true });
+              timeline.focus(targetId, { animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+              handleNodeSelect(item);
+          } else {
+              console.log("Node not on timeline. Loading content directly...");
+              
+              const fakeItem = { id: targetId, content: "Linked Note" };
+              handleNodeSelect(fakeItem);
+
+	  }
+
+      }
+
+  });
 </script>
+
 
 </body>
 </html>
