@@ -1,4 +1,4 @@
-// main.js - FINAL (Eye Toggle Edition)
+// main.js - FINAL (Preview Toggle Support)
 
 var rawData = new vis.DataSet([]);
 var activeTags = new Set();
@@ -19,27 +19,23 @@ function loadConfigAndData() {
     fetch('/config').then(r => r.json()).then(config => {
         if (config.theme === 'light') document.body.classList.add('light-mode');
         else document.body.classList.remove('light-mode');
+        
         showLinks = config.showLinks;
         followModeEnabled = config.followMode;
         zoomWindowYears = config.zoomWindow;
+        // NEW: Load autoPreview setting from Emacs custom variable
+        autoOpenPreview = config.autoPreview; 
+        
         updateButtonStates();
         loadData();
     }).catch(e => loadData());
 }
 
-// --- 2. Filter Logic ---
+// --- 2. Filter Logic (Same as before) ---
 const filterRules = function(item) {
     if (!item) return false;
-    
-    // 1. Force Show Override
     if (forcedVisibleIds.has(item.id)) return true;
-
-    // 2. Hard Block (Eye Slashed)
-    if (item.all_tags && item.all_tags.some(tag => excludedTags.has(tag))) {
-        return false; 
-    }
-
-    // 3. Inclusion (Checkbox)
+    if (item.all_tags && item.all_tags.some(tag => excludedTags.has(tag))) return false; 
     if (activeTags.size === 0) return false;
     if (!item.all_tags || item.all_tags.length === 0) return activeTags.has("Uncategorized");
     return item.all_tags.some(tag => activeTags.has(tag));
@@ -48,7 +44,7 @@ const filterRules = function(item) {
 var dataView = new vis.DataView(rawData, { filter: filterRules });
 var container = document.getElementById('visualization');
 
-// --- Tooltip & Options ---
+// --- Tooltip & Options (Same as before) ---
 var options = {
     orientation: 'bottom', zoomKey: 'ctrlKey', horizontalScroll: true,
     stack: true, height: '100%', width: '100%', selectable: true, multiselect: false,
@@ -95,7 +91,7 @@ var options = {
 
 var timeline = new vis.Timeline(container, dataView, options);
 
-// --- 3. Canvas ---
+// --- 3. Canvas & Drawing (Same as before) ---
 const canvas = document.getElementById('connection-layer');
 const ctx = canvas.getContext('2d');
 function resizeCanvas() {
@@ -184,7 +180,7 @@ function handleNodeSelect(item) {
     requestAnimationFrame(drawConnections);
 }
 
-// --- 5. RENDER FILTERS (Left = Include, Right = Eye Block) ---
+// --- 5. RENDER FILTERS (Same as before) ---
 function renderFilters() {
     const container = document.getElementById('filter-list');
     if (!container) return;
@@ -194,83 +190,82 @@ function renderFilters() {
         div.className = 'filter-item';
         div.dataset.tag = tag.toLowerCase();
         
-        // --- LEFT CONTAINER (Checkbox + Dot + Name) ---
         const left = document.createElement('div');
         left.className = 'filter-left';
         
-        // Checkbox
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = activeTags.has(tag);
-        // Interaction handled by container click, so disable pointer events here
         checkbox.style.pointerEvents = "none"; 
         
-        // Dot
         const dot = document.createElement('span');
         dot.className = 'filter-dot';
         dot.style.backgroundColor = stringToColor(tag);
         
-        // Label
         const label = document.createElement('span');
         label.innerText = tag;
         
-        left.appendChild(checkbox);
-        left.appendChild(dot);
-        left.appendChild(label);
+        left.appendChild(checkbox); left.appendChild(dot); left.appendChild(label);
         
-        // Left Click Handler: Toggle Include
         left.onclick = function() {
             if (activeTags.has(tag)) activeTags.delete(tag);
             else activeTags.add(tag);
-            
-            // If it was blocked, unblock it to avoid confusion
             if (excludedTags.has(tag)) excludedTags.delete(tag);
-            
             renderFilters(); dataView.refresh();
         };
         
         div.appendChild(left);
 
-        // --- RIGHT CONTAINER (Eye Icon) ---
         const eye = document.createElement('i');
-        // Visual State
         if (excludedTags.has(tag)) {
-            // Blocked State
-            eye.className = 'fas fa-eye-slash filter-eye blocked';
-            eye.title = "Unblock this tag";
+            eye.className = 'fas fa-eye-slash filter-eye blocked'; eye.title = "Unblock this tag";
         } else {
-            // Normal State
-            eye.className = 'fas fa-eye filter-eye';
-            eye.title = "Hard block (Hide all)";
+            eye.className = 'fas fa-eye filter-eye'; eye.title = "Hard block (Hide all)";
         }
         
-        // Eye Click Handler: Toggle Exclude
         eye.onclick = function(e) {
-            e.stopPropagation(); // Prevent triggering the left-click
-            if (excludedTags.has(tag)) {
-                excludedTags.delete(tag);
-            } else {
-                excludedTags.add(tag);
-                // Optional: Uncheck the include box if we block it?
-                // activeTags.delete(tag); 
-            }
+            e.stopPropagation(); 
+            if (excludedTags.has(tag)) { excludedTags.delete(tag); } 
+            else { excludedTags.add(tag); }
             renderFilters(); dataView.refresh();
         };
         
-        div.appendChild(eye);
-        container.appendChild(div);
+        div.appendChild(eye); container.appendChild(div);
     });
 }
 
-// --- 6. Polling & Signals ---
+// --- 6. Polling & Signals (Updated) ---
 let lastFocusId = null;
 setInterval(() => {
     fetch('/current-focus').then(r=>r.json()).then(resp => {
-        if (resp.action === "hide" && resp.id) {
+        
+        // --- FILTER COMMANDS ---
+        if (resp.action === "filter-toggle" && resp.tag) {
+            const tag = resp.tag;
+            if (activeTags.has(tag)) activeTags.delete(tag);
+            else activeTags.add(tag);
+            if (excludedTags.has(tag)) excludedTags.delete(tag);
+            renderFilters(); dataView.refresh();
+        }
+        else if (resp.action === "filter-block" && resp.tag) {
+            const tag = resp.tag;
+            if (excludedTags.has(tag)) excludedTags.delete(tag);
+            else excludedTags.add(tag);
+            renderFilters(); dataView.refresh();
+        }
+        else if (resp.action === "filter-reset") { toggleAll(true); excludedTags.clear(); renderFilters(); }
+        else if (resp.action === "filter-hide-all") { toggleAll(false); renderFilters(); }
+
+        // --- GLOBAL TOGGLES ---
+        else if (resp.action === "toggle-follow") { toggleFollowMode(); }
+        else if (resp.action === "toggle-preview") { togglePreviewMode(); } // NEW
+
+        // --- SPECIFIC ACTIONS ---
+        else if (resp.action === "zoom-date" && resp.date) { handleDateZoom(resp.date); }
+        else if (resp.action === "hide" && resp.id) {
             rawData.remove(resp.id);
             if (currentSelectedId === resp.id) closePreview();
         } 
-        else if (resp.action === "toggle-follow") { toggleFollowMode(); }
         else if (resp.action === "focus" && resp.id) { forceShowNode(resp.id); }
         else if (followModeEnabled && resp.action === "follow" && resp.id) {
             if (resp.id !== lastFocusId) {
@@ -282,31 +277,40 @@ setInterval(() => {
     }).catch(e=>{});
 }, 1000);
 
-function forceShowNode(id) {
-    const item = rawData.get(id);
-    if (item) {
-        forcedVisibleIds.add(id); dataView.refresh(); 
-        focusOnNode(id); handleNodeSelect(item); timeline.setSelection(id, { focus: true });
-    } else {
-        fetch(`/node-data?id=${id}`).then(r=>r.json()).then(newItem => {
-            if (newItem && newItem.id) {
-                assignColorToItem(newItem); rawData.add(newItem);
-                forcedVisibleIds.add(newItem.id); dataView.refresh();
-                focusOnNode(newItem.id); handleNodeSelect(newItem);
-            }
-        });
-    }
+// --- Helpers (Same as before) ---
+function handleDateZoom(dateStr) {
+    let start, end;
+    const parts = dateStr.split('-');
+    if (parts.length === 1) { start = new Date(`${parts[0]}-01-01`); end = new Date(`${parts[0]}-12-31 23:59:59`); } 
+    else if (parts.length === 2) { start = new Date(`${dateStr}-01`); end = new Date(parts[0], parts[1], 0, 23, 59, 59); } 
+    else { start = new Date(`${dateStr} 00:00:00`); end = new Date(`${dateStr} 23:59:59`); }
+
+    if (isNaN(start.getTime())) return;
+    const padding = (end.getTime() - start.getTime()) * 0.5;
+    timeline.setWindow(new Date(start.getTime() - padding), new Date(end.getTime() + padding), { animation: { duration: 1000 } });
+
+    document.body.classList.add('focus-mode');
+    const updates = []; const tStart = start.getTime(); const tEnd = end.getTime();
+    rawData.forEach(item => {
+        const itemStart = new Date(item.start).getTime(); const itemEnd = item.end ? new Date(item.end).getTime() : itemStart;
+        const overlaps = (itemStart <= tEnd) && (itemEnd >= tStart);
+        const baseClass = (item.className || "").replace(' highlighted', '');
+        if (overlaps) updates.push({ id: item.id, className: baseClass + ' highlighted' });
+        else updates.push({ id: item.id, className: baseClass });
+    });
+    rawData.update(updates); timeline.setSelection([], { focus: false }); closePreview(); 
 }
 
-// Helpers
 function showConfirmModal(id, title) { pendingRemoveId = id; document.getElementById('modal-title').innerText = `Hide "${title}"?`; document.getElementById('confirm-modal').classList.add('active'); }
 function focusOnNode(id) {
     const item = rawData.get(id); if (!item) return;
-    let centerDate;
-    if (item.type === 'point') centerDate = new Date(item.start).getTime();
-    else { const s = new Date(item.start).getTime(); const e = new Date(item.end).getTime(); centerDate = s + (e - s) / 2; }
-    const center = new Date(centerDate); const start = new Date(center); start.setFullYear(center.getFullYear() - zoomWindowYears); const end = new Date(center); end.setFullYear(center.getFullYear() + zoomWindowYears);
-    timeline.setWindow(start, end, { animation: { duration: 800 } }); timeline.setSelection(id, { focus: false });
+    let startWindow, endWindow;
+    if (item.type === 'point') {
+        const center = new Date(item.start); startWindow = new Date(center); startWindow.setFullYear(center.getFullYear() - zoomWindowYears); endWindow = new Date(center); endWindow.setFullYear(center.getFullYear() + zoomWindowYears);
+    } else {
+        const itemStart = new Date(item.start); const itemEnd = new Date(item.end); startWindow = new Date(itemStart); startWindow.setFullYear(itemStart.getFullYear() - zoomWindowYears); endWindow = new Date(itemEnd); endWindow.setFullYear(itemEnd.getFullYear() + zoomWindowYears);
+    }
+    timeline.setWindow(startWindow, endWindow, { animation: { duration: 800 } }); timeline.setSelection(id, { focus: false });
 }
 function highlightNetwork(centerItem) {
     document.body.classList.add('focus-mode'); const neighbors = new Set(centerItem.neighbors || []); neighbors.add(centerItem.id);
@@ -321,7 +325,7 @@ function closePreview() { document.getElementById('preview-panel').classList.rem
 function stringToColor(str) { let hash = 0; for (let i=0; i<str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash); const h = Math.abs(hash % 360); const isLight = document.body.classList.contains('light-mode'); return `hsl(${h}, ${isLight?65:55}%, ${isLight?85:30}%)`; }
 function assignColorToItem(item) { const tag = (item.all_tags && item.all_tags.length) ? item.all_tags[0] : "Uncategorized"; const bg = stringToColor(tag); const txt = document.body.classList.contains('light-mode') ? '#333' : '#eee'; item.style = `background-color: ${bg}; border-color: ${bg}; color: ${txt};`; const baseClass = (item.className || "").split(' node-')[0]; item.className = `${baseClass} node-${item.id}`; }
 function toggleTheme() { document.body.classList.toggle('light-mode'); const updates = []; rawData.forEach(item => { assignColorToItem(item); updates.push(item); }); rawData.update(updates); renderFilters(); requestAnimationFrame(drawConnections); }
-function loadData() { fetch('/data').then(r=>r.json()).then(data => { const uniqueTags = new Set(); data.forEach(item => { if(!item.all_tags) item.all_tags = ["Uncategorized"]; item.all_tags.forEach(t=>uniqueTags.add(t)); assignColorToItem(item); }); allKnownTags = [...uniqueTags].sort(); if(activeTags.size===0) activeTags = new Set(allKnownTags); renderFilters(); rawData.clear(); rawData.add(data); timeline.fit(); updateButtonStates(); }); }
+function loadData() { fetch('/data').then(r=>r.json()).then(data => { const uniqueTags = new Set(); data.forEach(item => { if(!item.all_tags) item.all_tags = ["Uncategorized"]; item.all_tags.forEach(t=>uniqueTags.add(t)); assignColorToItem(item); delete item.title; }); allKnownTags = [...uniqueTags].sort(); if(activeTags.size===0) activeTags = new Set(allKnownTags); renderFilters(); rawData.clear(); rawData.add(data); timeline.fit(); updateButtonStates(); }); }
 function updateButtonStates() { 
     const linkBtn = document.getElementById('link-btn'); if (showLinks) linkBtn.classList.add('active'); else linkBtn.classList.remove('active');
     const prevBtn = document.getElementById('preview-toggle-btn'); if (autoOpenPreview) prevBtn.classList.add('active'); else prevBtn.classList.remove('active');

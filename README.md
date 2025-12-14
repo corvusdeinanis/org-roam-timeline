@@ -1,10 +1,13 @@
-# org-roam-timeline: A visual interface for org-roam.
+# org-roam-timeline: A visual interface for org-roam dated nodes.
+
+![org-roam-timeline](media/main.gif)
 
 **Table of Contents**
 
 - [Installation](#installation)
 - [Usage](#usage)
 - [Features ✨](#features-)
+- [License](#licence)
 
 Org-Roam-Timeline creates an interactive, browser-based timeline of your [org-roam](https://github.com/org-roam/org-roam) notes, allowing you to visualize historical context, filter by tags, and seamlessly navigate between your timeline and your text editor.
 
@@ -14,7 +17,7 @@ It is designed for researchers, historians, and anyone who needs to see /when/ t
 
 ### Clone repo
 
-`org-roam-timeline` is yet not on, but you can still used it
+`org-roam-timeline` is yet not on MELPA, but you can still use it
 
 ```bash
 
@@ -35,8 +38,9 @@ You then should add something like this to your `init.el`, this are the keybindi
        :bind (("C-c n p" . org-roam-timeline-open)       ; Open the Timeline View
               ("C-c n d" . org-roam-timeline-add-date)   ; Add/Edit Timeline Date
               ("C-c n s" . org-roam-timeline-show-node)  ; Force Show Node in Browser
-     	 ("C-c n h" . org-roam-timeline-hide-node)  ; Force Hide Node in Browser
+     	      ("C-c n h" . org-roam-timeline-hide-node)  ; Force Hide Node in Browser
               ("C-c n t" . org-roam-timeline-tag-add)    ; Add Tag (Smart Completion)
+	      ("C-c n z" . org-roam-timeline-zoom-date)  ; Focus the view on a specified date
      	 )
      	 
        
@@ -50,11 +54,16 @@ You then should add something like this to your `init.el`, this are the keybindi
 
        ;; Enable "Follow Me" mode by default? (Timeline tracks your cursor)
        (org-roam-timeline-follow-mode-on-start t)
+
+       ;; Disable the minibuffer with note content in the UI
+       (org-roam-timeline-preview-on-start nil)
        
        :config
        (message "Org-Roam Timeline loaded."))
 
 ```
+
+Check other functions included that you could bind if you want complete control from emacs, such as 
 
 ### Customization
 
@@ -92,13 +101,7 @@ Org-Roam Timeline uses tags to categorize and filter nodes, so I highly encourag
 - Follow Mode: If enabled, moving your cursor in Emacs will automatically pan the timeline to that node (if it has a date).
 - Hard Block: In the sidebar, click the Eye Icon next to a tag to hide /all/ nodes with that tag, even if they match other filters.
 
-* Customization
-You can customize the appearance via `M-x customize-group org-roam-timeline`.
-
-- `org-roam-timeline-default-theme`: Choose `'dark` (default) or `'light`.
-- `org-roam-timeline-focus-window-years`: How many years +/- to show when focusing a point event.
-
-
+![org-roam-timeline](media/tag.gif)
 
 ## Features
 - Bi-Directional Sync:
@@ -110,6 +113,21 @@ You can customize the appearance via `M-x customize-group org-roam-timeline`.
   - Hard Block: Click the "Eye" icon to explicitly hide specific tags (e.g., exclude "Person" to see only "Events").
 - Rich Tooltips: Hover over nodes to see color-coded tag pills and date ranges.
 - Glassmorphism UI: A modern, dark-mode interface that fits focused research workflows.
+
+### FROM EMACS 🤯
+
+You can manipulate these filters and behaviours without leaving your emacs.
+
+- org-roam-timeline-show-node: show the present node.
+- org-roam-timeline-hide-node: hide the present node.
+- org-roam-timeline-toggle-follow: turn on/off the following behaviour (when org-roam-timeline show the node you are at in emacs).
+- org-roam-timeline-toggle-preview: turn on/off the showing of note content in the ui.
+- org-roam-timeline-filter-toggle: turn on/off wether to include nodes with some tag.
+- org-roam-timeline-filter-block: force all nodes with that tag to hide, even if they have other of the include tags.
+- org-roam-timeline-filter-reset: clear all the filters.
+- org-roam-timeline-filter-hide-all: hide all nodes, from there, you decide what to see.
+
+[org-roam-timeline](media/follow.gif)
 
 ## Licence
 

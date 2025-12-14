@@ -6,18 +6,28 @@
 (require 'ox-html)
 
 (defvar org-roam-timeline-root (file-name-directory (or load-file-name buffer-file-name)))
+
+;; --- SIGNALS ---
 (defvar org-roam-timeline--explicit-focus-id nil)
-(defvar org-roam-timeline--explicit-hide-id nil) ;; NEW: Signal to hide
-(defvar org-roam-timeline--toggle-follow-signal nil) ;; NEW: Signal to toggle follow
+(defvar org-roam-timeline--explicit-hide-id nil)
+(defvar org-roam-timeline--explicit-date-focus nil)
+(defvar org-roam-timeline--filter-signal nil)
+(defvar org-roam-timeline--toggle-follow-signal nil)
+(defvar org-roam-timeline--toggle-preview-signal nil) ;; NEW: Toggle Preview Signal
+
+;; --- HELPER: Get All Tags ---
+(defun org-roam-timeline--get-all-tags ()
+  (mapcar #'car (org-roam-db-query [:select :distinct tag :from tags])))
 
 ;; --- CONFIGURATION ---
 (defgroup org-roam-timeline nil "Settings for Org Roam Timeline." :group 'org-roam)
 (defcustom org-roam-timeline-default-theme 'dark "Default theme." :type '(choice (const :tag "Dark" dark) (const :tag "Light" light)))
-(defcustom org-roam-timeline-show-links-on-start t "Show lines on start." :type 'boolean)
-(defcustom org-roam-timeline-follow-mode-on-start t "Follow mode active." :type 'boolean)
 (defcustom org-roam-timeline-focus-window-years 5 "Zoom window." :type 'integer)
+(defcustom org-roam-timeline-show-links-on-start t "Show lines on start." :type 'boolean)
+(defcustom org-roam-timeline-follow-mode-on-start t "Follow mode active on start." :type 'boolean)
+(defcustom org-roam-timeline-preview-on-start t "Auto-open preview panel on start." :type 'boolean) ;; NEW
 
-;; --- DATA PROCESSING ---
+;; --- DATA PROCESSING (Same as before) ---
 (defun org-roam-timeline--process-node (node)
   (condition-case err
       (let* ((props (org-roam-node-properties node))
@@ -38,7 +48,7 @@
             
             `((id . ,id)
               (content . ,(org-roam-node-title node))
-              (title . "Metadata") ;; Dummy title to trigger JS tooltip
+              (title . "Metadata")
               (start . ,start-clean)
               ,@(when end-clean `((end . ,end-clean)))
               (type . ,(if end-clean "range" "point"))
@@ -83,44 +93,73 @@
           (error (setq final-output (format "<h3 style='color:red'>Export Failed</h3><pre>%s</pre>" err))))))
     (insert final-output)))
 
+;; UPDATED CONFIG SERVLET (Sends preview setting)
 (defservlet* config text/json ()
-  (insert (json-encode `((theme . ,(symbol-name org-roam-timeline-default-theme)) (showLinks . ,(if org-roam-timeline-show-links-on-start t :json-false)) (followMode . ,(if org-roam-timeline-follow-mode-on-start t :json-false)) (zoomWindow . ,org-roam-timeline-focus-window-years)))))
+  (insert (json-encode `((theme . ,(symbol-name org-roam-timeline-default-theme)) 
+                         (showLinks . ,(if org-roam-timeline-show-links-on-start t :json-false)) 
+                         (followMode . ,(if org-roam-timeline-follow-mode-on-start t :json-false)) 
+                         (autoPreview . ,(if org-roam-timeline-preview-on-start t :json-false)) ;; NEW
+                         (zoomWindow . ,org-roam-timeline-focus-window-years)))))
+
 (defservlet* data text/json () (insert (json-encode (org-roam-timeline--get-nodes))))
 (defservlet* node-data text/json (id)
   (let ((node (org-roam-node-from-id id))) (if node (let ((item (org-roam-timeline--process-node node))) (if item (insert (json-encode item)) (insert "{}"))) (insert "{}"))))
 (defservlet* open text/plain (id) (let ((node (org-roam-node-from-id id))) (if node (progn (with-current-buffer (window-buffer (selected-window)) (org-roam-node-open node)) (insert "Opened")) (insert "Node not found"))))
 
-;; --- POLLING SERVLET (Handles Show, Hide, and Toggle signals) ---
+;; --- POLLING SERVLET (Updated) ---
 (defservlet* current-focus text/json ()
   (let ((response '((action . "none"))))
     
-    ;; 1. Check Hide Signal
-    (when org-roam-timeline--explicit-hide-id
-      (setq response `((action . "hide") (id . ,org-roam-timeline--explicit-hide-id)))
-      (setq org-roam-timeline--explicit-hide-id nil))
-    
-    ;; 2. Check Toggle Follow Signal
-    (when org-roam-timeline--toggle-follow-signal
-      (setq response `((action . "toggle-follow")))
-      (setq org-roam-timeline--toggle-follow-signal nil))
+    ;; 1. Filters
+    (when org-roam-timeline--filter-signal
+      (setq response `((action . ,(car org-roam-timeline--filter-signal)) 
+                       (tag . ,(cdr org-roam-timeline--filter-signal))))
+      (setq org-roam-timeline--filter-signal nil))
 
-    ;; 3. Check Show Signal (Explicit)
-    (unless (string-equal (cdr (assoc 'action response)) "hide")
-      (if org-roam-timeline--explicit-focus-id
-          (progn
-            (setq response `((action . "focus") (id . ,org-roam-timeline--explicit-focus-id)))
-            (setq org-roam-timeline--explicit-focus-id nil))
-        
-        ;; 4. Check Follow Mode (Implicit)
-        (let* ((user-window (selected-window))
-               (user-buffer (window-buffer user-window))
-               (node-id nil))
-          (with-current-buffer user-buffer
-            (when (derived-mode-p 'org-mode)
-              (let ((node (org-roam-node-at-point)))
-                (when node (setq node-id (org-roam-node-id node))))))
-          (when node-id
-            (setq response `((action . "follow") (id . ,node-id)))))))
+    ;; 2. Date Zoom
+    (unless (assoc 'tag response)
+      (when org-roam-timeline--explicit-date-focus
+        (setq response `((action . "zoom-date") (date . ,org-roam-timeline--explicit-date-focus)))
+        (setq org-roam-timeline--explicit-date-focus nil)))
+
+    ;; 3. Toggle Follow
+    (unless (or (assoc 'tag response) (string-equal (cdr (assoc 'action response)) "zoom-date"))
+      (when org-roam-timeline--toggle-follow-signal
+        (setq response `((action . "toggle-follow")))
+        (setq org-roam-timeline--toggle-follow-signal nil)))
+
+    ;; 4. Toggle Preview (NEW)
+    (unless (or (assoc 'tag response) 
+                (string-equal (cdr (assoc 'action response)) "zoom-date")
+                (string-equal (cdr (assoc 'action response)) "toggle-follow"))
+      (when org-roam-timeline--toggle-preview-signal
+        (setq response `((action . "toggle-preview")))
+        (setq org-roam-timeline--toggle-preview-signal nil)))
+
+    ;; 5. Hide
+    (unless (or (assoc 'tag response) 
+                (string-equal (cdr (assoc 'action response)) "zoom-date")
+                (string-equal (cdr (assoc 'action response)) "toggle-follow")
+                (string-equal (cdr (assoc 'action response)) "toggle-preview"))
+      (when org-roam-timeline--explicit-hide-id
+        (setq response `((action . "hide") (id . ,org-roam-timeline--explicit-hide-id)))
+        (setq org-roam-timeline--explicit-hide-id nil)))
+
+    ;; 6. Focus / Follow
+    (if (string-equal (cdr (assoc 'action response)) "none")
+        (if org-roam-timeline--explicit-focus-id
+            (progn
+              (setq response `((action . "focus") (id . ,org-roam-timeline--explicit-focus-id)))
+              (setq org-roam-timeline--explicit-focus-id nil))
+          (let* ((user-window (selected-window))
+                 (user-buffer (window-buffer user-window))
+                 (node-id nil))
+            (with-current-buffer user-buffer
+              (when (derived-mode-p 'org-mode)
+                (let ((node (org-roam-node-at-point)))
+                  (when node (setq node-id (org-roam-node-id node))))))
+            (when node-id
+              (setq response `((action . "follow") (id . ,node-id)))))))
     
     (insert (json-encode response))))
 
@@ -129,38 +168,23 @@
 ;; --- INTERACTIVE COMMANDS ---
 (defun org-roam-timeline-open () (interactive) (setq httpd-root (expand-file-name "html" org-roam-timeline-root)) (httpd-start) (browse-url (format "http://localhost:%d" httpd-port)))
 
-(defun org-roam-timeline-show-node () 
-  "Force browser to show/draw the node at point."
-  (interactive) 
-  (let ((node (org-roam-node-at-point))) 
-    (if node 
-        (progn (setq org-roam-timeline--explicit-focus-id (org-roam-node-id node)) (message "Timeline: Show Node")) 
-      (user-error "No node at point"))))
+(defun org-roam-timeline-show-node () (interactive) (let ((node (org-roam-node-at-point))) (if node (progn (setq org-roam-timeline--explicit-focus-id (org-roam-node-id node)) (message "Timeline: Show Node")) (user-error "No node at point"))))
+(defun org-roam-timeline-hide-node () (interactive) (let ((node (org-roam-node-at-point))) (if node (progn (setq org-roam-timeline--explicit-hide-id (org-roam-node-id node)) (message "Timeline: Hide Node")) (user-error "No node at point"))))
+(defun org-roam-timeline-toggle-follow () (interactive) (setq org-roam-timeline--toggle-follow-signal t) (message "Timeline: Toggled Follow Mode"))
 
-(defun org-roam-timeline-hide-node () 
-  "Force browser to remove the node at point from view."
+(defun org-roam-timeline-toggle-preview () 
+  "Toggle Auto-Preview (Sidebar content) in the browser."
   (interactive) 
-  (let ((node (org-roam-node-at-point))) 
-    (if node 
-        (progn (setq org-roam-timeline--explicit-hide-id (org-roam-node-id node)) (message "Timeline: Hide Node")) 
-      (user-error "No node at point"))))
-
-(defun org-roam-timeline-toggle-follow ()
-  "Toggle Follow Mode in the browser."
-  (interactive)
-  (setq org-roam-timeline--toggle-follow-signal t)
-  (message "Timeline: Toggled Follow Mode"))
+  (setq org-roam-timeline--toggle-preview-signal t) 
+  (message "Timeline: Toggled Auto-Preview"))
 
 (defun org-roam-timeline-tag-add () (interactive) (let* ((node (org-roam-node-at-point)) (existing-tags (org-roam-db-query [:select :distinct tag :from tags])) (flat-tags (mapcar #'car existing-tags)) (choice (completing-read "Tag: " flat-tags nil nil nil nil))) (if (string-blank-p choice) (message "No tag.") (org-roam-tag-add (list choice)) (message "Tag '%s' added." choice))))
+(defun org-roam-timeline-add-date () (interactive) (let* ((start-input (read-string "Start (YYYY or YYYY-MM-DD): ")) (is-range (y-or-n-p "Is this a time range? ")) (end-input (if is-range (read-string "End (YYYY or YYYY-MM-DD): ") nil))) (unless (string-empty-p start-input) (org-set-property "TIMELINE_START" start-input)) (if end-input (org-set-property "TIMELINE_END" end-input) (org-delete-property "TIMELINE_END")) (save-buffer) (org-roam-db-sync) (org-roam-timeline-show-node)))
+(defun org-roam-timeline-zoom-date () (interactive) (let ((date-str (read-string "Zoom to Date (YYYY[-MM[-DD]]): "))) (unless (string-empty-p date-str) (setq org-roam-timeline--explicit-date-focus date-str) (message "Timeline: Zooming to %s..." date-str))))
 
-;; FIXED PROMPT
-(defun org-roam-timeline-add-date () 
-  (interactive) 
-  (let* ((start-input (read-string "Start (YYYY or YYYY-MM-DD): ")) 
-         (is-range (y-or-n-p "Is this a time range? ")) 
-         (end-input (if is-range (read-string "End (YYYY or YYYY-MM-DD): ") nil))) 
-    (unless (string-empty-p start-input) (org-set-property "TIMELINE_START" start-input)) 
-    (if end-input (org-set-property "TIMELINE_END" end-input) (org-delete-property "TIMELINE_END")) 
-    (save-buffer) (org-roam-db-sync) (org-roam-timeline-show-node)))
+(defun org-roam-timeline-filter-toggle () (interactive) (let ((tag (completing-read "Toggle Tag: " (org-roam-timeline--get-all-tags) nil t))) (setq org-roam-timeline--filter-signal (cons "filter-toggle" tag)) (message "Timeline: Toggling %s" tag)))
+(defun org-roam-timeline-filter-block () (interactive) (let ((tag (completing-read "Block Tag: " (org-roam-timeline--get-all-tags) nil t))) (setq org-roam-timeline--filter-signal (cons "filter-block" tag)) (message "Timeline: Blocking %s" tag)))
+(defun org-roam-timeline-filter-reset () (interactive) (setq org-roam-timeline--filter-signal (cons "filter-reset" "all")) (message "Timeline: Resetting filters"))
+(defun org-roam-timeline-filter-hide-all () (interactive) (setq org-roam-timeline--filter-signal (cons "filter-hide-all" "all")) (message "Timeline: Hiding all tags (Blank Slate)."))
 
 (provide 'org-roam-timeline)
