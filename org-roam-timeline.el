@@ -5,7 +5,7 @@
 ;; Author: Gerardo Cendejas Mendoza <gc597@cornell.edu>
 ;; Maintainer: Gerardo Cendejas Mendoza <gc597@cornell.edu>
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1") (org-roam "2.0") (json-mode "1.0") (simple-httpd "1.5.1")) 
+;; Package-Requires: ((emacs "27.1") (org-roam "2.0") (json-mode "1.0") (simple-httpd "1.5.1"))
 ;; Keywords: org, hypermedia, visualization, timeline
 ;; URL: https://github.com/GerardoCendejas/org-roam-timeline
 
@@ -22,18 +22,30 @@
 
 (defconst org-roam-timeline-root
   (file-name-directory (or load-file-name buffer-file-name))
-  "Directorio raíz donde está instalado el paquete org-roam-timeline.")
+  "Root directory where the org-roam-timeline package is installed.")
 
 ;; --- SIGNALS ---
-(defvar org-roam-timeline--explicit-focus-id nil)
-(defvar org-roam-timeline--explicit-hide-id nil)
-(defvar org-roam-timeline--explicit-date-focus nil)
-(defvar org-roam-timeline--filter-signal nil)
-(defvar org-roam-timeline--toggle-follow-signal nil)
-(defvar org-roam-timeline--toggle-preview-signal nil) 
+(defvar org-roam-timeline--explicit-focus-id nil
+  "Store the ID of the node to be explicitly focused.")
+
+(defvar org-roam-timeline--explicit-hide-id nil
+  "Store the ID of the node to be explicitly hidden.")
+
+(defvar org-roam-timeline--explicit-date-focus nil
+  "Store the date string to zoom towards.")
+
+(defvar org-roam-timeline--filter-signal nil
+  "Signal to filter tags.  A cons cell of (action . tag).")
+
+(defvar org-roam-timeline--toggle-follow-signal nil
+  "Boolean signal to toggle Follow Mode.")
+
+(defvar org-roam-timeline--toggle-preview-signal nil
+  "Boolean signal to toggle the auto-preview panel.")
 
 ;; --- HELPER: Get All Tags ---
 (defun org-roam-timeline--get-all-tags ()
+  "Retrieve a list of all unique tags in the Org-roam database."
   (mapcar #'car (org-roam-db-query [:select :distinct tag :from tags])))
 
 ;; --- CONFIGURATION ---
@@ -42,10 +54,11 @@
 (defcustom org-roam-timeline-focus-window-years 5 "Zoom window." :type 'integer)
 (defcustom org-roam-timeline-show-links-on-start t "Show lines on start." :type 'boolean)
 (defcustom org-roam-timeline-follow-mode-on-start t "Follow mode active on start." :type 'boolean)
-(defcustom org-roam-timeline-preview-on-start t "Auto-open preview panel on start." :type 'boolean) 
+(defcustom org-roam-timeline-preview-on-start t "Auto-open preview panel on start." :type 'boolean)
 
 ;; --- DATA PROCESSING ---
 (defun org-roam-timeline--process-node (node)
+  "Process an Org-roam NODE to extract time and structure metadata."
   (condition-case err
       (let* ((props (org-roam-node-properties node))
              (id (org-roam-node-id node))
@@ -75,6 +88,7 @@
     (error nil)))
 
 (defun org-roam-timeline--get-nodes ()
+  "Retrieve and process all valid nodes for the timeline."
   (let ((nodes '()))
     (dolist (node (org-roam-node-list))
       (let ((item (org-roam-timeline--process-node node)))
@@ -82,6 +96,7 @@
     nodes))
 
 (defun org-roam-timeline--clean-date (date-str &optional is-end)
+  "Clean and format DATE-STR.  If IS-END is non-nil, adjust to year end."
   (when (stringp date-str)
     (let ((clean (string-trim date-str)))
       (cond
@@ -97,11 +112,11 @@
   (let ((marker (org-id-find id 'marker)) (final-output ""))
     (if (not marker) (setq final-output (format "<h3>Error: ID %s not found.</h3>" id))
       (let* ((raw-content (with-current-buffer (marker-buffer marker) (save-excursion (goto-char (marker-position marker)) (let ((beg (point)) (end (if (org-at-heading-p) (save-excursion (org-end-of-subtree) (point)) (point-max)))) (buffer-substring-no-properties beg end)))))
-             (node (org-roam-node-from-id id)) 
+             (node (org-roam-node-from-id id))
              (title (org-roam-node-title node))
              (backlinks (org-roam-backlinks-get node)))
         (condition-case err
-            (let ((org-export-use-babel nil) (org-confirm-babel-evaluate nil) (org-html-with-latex 'mathjax) (org-export-with-section-numbers nil) (org-html-link-org-files-as-html nil)) 
+            (let ((org-export-use-babel nil) (org-confirm-babel-evaluate nil) (org-html-with-latex 'mathjax) (org-export-with-section-numbers nil) (org-html-link-org-files-as-html nil))
               (let ((html (org-export-string-as raw-content 'html t '(:with-toc nil :with-section-numbers nil))))
                 (setq html (concat (format "<h1 class='node-title'>%s</h1>" title) html))
                 (let ((bl-html "<div class='backlinks-section' style='margin-top:40px; border-top:1px solid #eee; padding-top:20px;'><h4 style='color:#888; text-transform:uppercase; font-size:12px; letter-spacing:1px;'>Linked References</h4><ul style='list-style:none; padding:0;'>"))
@@ -112,10 +127,10 @@
 
 ;; UPDATED CONFIG SERVLET (Sends preview setting)
 (defservlet* config text/json ()
-  (insert (json-encode `((theme . ,(symbol-name org-roam-timeline-default-theme)) 
-                         (showLinks . ,(if org-roam-timeline-show-links-on-start t :json-false)) 
-                         (followMode . ,(if org-roam-timeline-follow-mode-on-start t :json-false)) 
-                         (autoPreview . ,(if org-roam-timeline-preview-on-start t :json-false)) 
+  (insert (json-encode `((theme . ,(symbol-name org-roam-timeline-default-theme))
+                         (showLinks . ,(if org-roam-timeline-show-links-on-start t :json-false))
+                         (followMode . ,(if org-roam-timeline-follow-mode-on-start t :json-false))
+                         (autoPreview . ,(if org-roam-timeline-preview-on-start t :json-false))
                          (zoomWindow . ,org-roam-timeline-focus-window-years)))))
 
 (defservlet* data text/json () (insert (json-encode (org-roam-timeline--get-nodes))))
@@ -129,7 +144,7 @@
     
     ;; 1. Filters
     (when org-roam-timeline--filter-signal
-      (setq response `((action . ,(car org-roam-timeline--filter-signal)) 
+      (setq response `((action . ,(car org-roam-timeline--filter-signal))
                        (tag . ,(cdr org-roam-timeline--filter-signal))))
       (setq org-roam-timeline--filter-signal nil))
 
@@ -146,7 +161,7 @@
         (setq org-roam-timeline--toggle-follow-signal nil)))
 
     ;; 4. Toggle Preview (NEW)
-    (unless (or (assoc 'tag response) 
+    (unless (or (assoc 'tag response)
                 (string-equal (cdr (assoc 'action response)) "zoom-date")
                 (string-equal (cdr (assoc 'action response)) "toggle-follow"))
       (when org-roam-timeline--toggle-preview-signal
@@ -154,7 +169,7 @@
         (setq org-roam-timeline--toggle-preview-signal nil)))
 
     ;; 5. Hide
-    (unless (or (assoc 'tag response) 
+    (unless (or (assoc 'tag response)
                 (string-equal (cdr (assoc 'action response)) "zoom-date")
                 (string-equal (cdr (assoc 'action response)) "toggle-follow")
                 (string-equal (cdr (assoc 'action response)) "toggle-preview"))
@@ -183,32 +198,105 @@
 (defservlet* remove-date text/plain (id) (let ((node (org-roam-node-from-id id))) (if node (let ((file (org-roam-node-file node)) (point (org-roam-node-point node))) (with-current-buffer (find-file-noselect file) (goto-char point) (org-delete-property "TIMELINE_START") (org-delete-property "TIMELINE_END") (save-buffer)) (insert "Removed")) (insert "Node not found"))))
 
 ;; --- INTERACTIVE COMMANDS ---
-(defun org-roam-timeline-open () 
+;; --- INTERACTIVE COMMANDS ---
+(defun org-roam-timeline-open ()
+  "Start the web server and open the timeline in the browser."
   (interactive) 
-  ;; Asegúrate de que esta línea quede así:
   (setq httpd-root (expand-file-name "html" org-roam-timeline-root))
   (httpd-start) 
   (browse-url (format "http://localhost:%d" httpd-port)))
 
-(defun org-roam-timeline-show-node () (interactive) (let ((node (org-roam-node-at-point))) (if node (progn (setq org-roam-timeline--explicit-focus-id (org-roam-node-id node)) (message "Timeline: Show Node")) (user-error "No node at point"))))
-(defun org-roam-timeline-hide-node () (interactive) (let ((node (org-roam-node-at-point))) (if node (progn (setq org-roam-timeline--explicit-hide-id (org-roam-node-id node)) (message "Timeline: Hide Node")) (user-error "No node at point"))))
-(defun org-roam-timeline-toggle-follow () (interactive) (setq org-roam-timeline--toggle-follow-signal t) (message "Timeline: Toggled Follow Mode"))
+(defun org-roam-timeline-show-node ()
+  "Focus the current node in the visual timeline."
+  (interactive)
+  (let ((node (org-roam-node-at-point)))
+    (if node
+        (progn
+          (setq org-roam-timeline--explicit-focus-id (org-roam-node-id node))
+          (message "Timeline: Show Node"))
+      (user-error "No node at point"))))
+
+(defun org-roam-timeline-hide-node ()
+  "Hide the current node from the visual timeline."
+  (interactive)
+  (let ((node (org-roam-node-at-point)))
+    (if node
+        (progn
+          (setq org-roam-timeline--explicit-hide-id (org-roam-node-id node))
+          (message "Timeline: Hide Node"))
+      (user-error "No node at point"))))
+
+(defun org-roam-timeline-toggle-follow ()
+  "Toggle Follow Mode in the visualization."
+  (interactive)
+  (setq org-roam-timeline--toggle-follow-signal t)
+  (message "Timeline: Toggled Follow Mode"))
 
 (defun org-roam-timeline-toggle-preview () 
-  "Toggle Auto-Preview (Sidebar content) in the browser."
+  "Toggle Auto-Preview (sidebar content) in the browser."
   (interactive) 
   (setq org-roam-timeline--toggle-preview-signal t) 
   (message "Timeline: Toggled Auto-Preview"))
 
-(defun org-roam-timeline-tag-add () (interactive) (let* ((node (org-roam-node-at-point)) (existing-tags (org-roam-db-query [:select :distinct tag :from tags])) (flat-tags (mapcar #'car existing-tags)) (choice (completing-read "Tag: " flat-tags nil nil nil nil))) (if (string-blank-p choice) (message "No tag.") (org-roam-tag-add (list choice)) (message "Tag '%s' added." choice))))
-(defun org-roam-timeline-add-date () (interactive) (let* ((start-input (read-string "Start (YYYY or YYYY-MM-DD): ")) (is-range (y-or-n-p "Is this a time range? ")) (end-input (if is-range (read-string "End (YYYY or YYYY-MM-DD): ") nil))) (unless (string-empty-p start-input) (org-set-property "TIMELINE_START" start-input)) (if end-input (org-set-property "TIMELINE_END" end-input) (org-delete-property "TIMELINE_END")) (save-buffer) (org-roam-db-sync) (org-roam-timeline-show-node)))
-(defun org-roam-timeline-zoom-date () (interactive) (let ((date-str (read-string "Zoom to Date (YYYY[-MM[-DD]]): "))) (unless (string-empty-p date-str) (setq org-roam-timeline--explicit-date-focus date-str) (message "Timeline: Zooming to %s..." date-str))))
+(defun org-roam-timeline-tag-add ()
+  "Add a tag to the current node, with completion for existing tags."
+  (interactive)
+  (let* ((node (org-roam-node-at-point))
+         (existing-tags (org-roam-db-query [:select :distinct tag :from tags]))
+         (flat-tags (mapcar #'car existing-tags))
+         (choice (completing-read "Tag: " flat-tags nil nil nil nil)))
+    (if (string-blank-p choice)
+        (message "No tag.")
+      (org-roam-tag-add (list choice))
+      (message "Tag '%s' added." choice))))
 
-(defun org-roam-timeline-filter-toggle () (interactive) (let ((tag (completing-read "Toggle Tag: " (org-roam-timeline--get-all-tags) nil t))) (setq org-roam-timeline--filter-signal (cons "filter-toggle" tag)) (message "Timeline: Toggling %s" tag)))
-(defun org-roam-timeline-filter-block () (interactive) (let ((tag (completing-read "Block Tag: " (org-roam-timeline--get-all-tags) nil t))) (setq org-roam-timeline--filter-signal (cons "filter-block" tag)) (message "Timeline: Blocking %s" tag)))
-(defun org-roam-timeline-filter-reset () (interactive) (setq org-roam-timeline--filter-signal (cons "filter-reset" "all")) (message "Timeline: Resetting filters"))
-(defun org-roam-timeline-filter-hide-all () (interactive) (setq org-roam-timeline--filter-signal (cons "filter-hide-all" "all")) (message "Timeline: Hiding all tags (Blank Slate)."))
+(defun org-roam-timeline-add-date ()
+  "Interactively add TIMELINE_START/END properties to the current node."
+  (interactive)
+  (let* ((start-input (read-string "Start (YYYY or YYYY-MM-DD): "))
+         (is-range (y-or-n-p "Is this a time range? "))
+         (end-input (if is-range (read-string "End (YYYY or YYYY-MM-DD): ") nil)))
+    (unless (string-empty-p start-input)
+      (org-set-property "TIMELINE_START" start-input))
+    (if end-input
+        (org-set-property "TIMELINE_END" end-input)
+      (org-delete-property "TIMELINE_END"))
+    (save-buffer)
+    (org-roam-db-sync)
+    (org-roam-timeline-show-node)))
 
-(provide 'org-roam-timeline)
+(defun org-roam-timeline-zoom-date ()
+  "Zoom the timeline to a specific date."
+  (interactive)
+  (let ((date-str (read-string "Zoom to Date (YYYY[-MM[-DD]]): ")))
+    (unless (string-empty-p date-str)
+      (setq org-roam-timeline--explicit-date-focus date-str)
+      (message "Timeline: Zooming to %s..." date-str))))
+
+(defun org-roam-timeline-filter-toggle ()
+  "Toggle the visibility of a specific tag in the timeline."
+  (interactive)
+  (let ((tag (completing-read "Toggle Tag: " (org-roam-timeline--get-all-tags) nil t)))
+    (setq org-roam-timeline--filter-signal (cons "filter-toggle" tag))
+    (message "Timeline: Toggling %s" tag)))
+
+(defun org-roam-timeline-filter-block ()
+  "Block (force hide) a specific tag in the timeline."
+  (interactive)
+  (let ((tag (completing-read "Block Tag: " (org-roam-timeline--get-all-tags) nil t)))
+    (setq org-roam-timeline--filter-signal (cons "filter-block" tag))
+    (message "Timeline: Blocking %s" tag)))
+
+(defun org-roam-timeline-filter-reset ()
+  "Reset all visualization filters."
+  (interactive)
+  (setq org-roam-timeline--filter-signal (cons "filter-reset" "all"))
+  (message "Timeline: Resetting filters"))
+
+(defun org-roam-timeline-filter-hide-all ()
+  "Hide all tags (blank slate)."
+  (interactive)
+  (setq org-roam-timeline--filter-signal (cons "filter-hide-all" "all"))
+  (message "Timeline: Hiding all tags (Blank Slate)."))(provide 'org-roam-timeline)
 
 ;;; org-roam-timeline.el ends here
