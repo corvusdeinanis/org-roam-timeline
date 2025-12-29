@@ -16,7 +16,7 @@ var zoomWindowYears = 5;
 
 // --- 1. Init ---
 function loadConfigAndData() {
-    fetch('/config').then(r => r.json()).then(config => {
+    fetch('/org-roam-timeline-config').then(r => r.json()).then(config => {
         if (config.theme === 'light') document.body.classList.add('light-mode');
         else document.body.classList.remove('light-mode');
         
@@ -236,7 +236,7 @@ function renderFilters() {
 // --- 6. Polling & Signals ---
 let lastFocusId = null;
 setInterval(() => {
-    fetch('/current-focus').then(r=>r.json()).then(resp => {
+    fetch('/org-roam-timeline-current-focus').then(r=>r.json()).then(resp => {
         
         // --- FILTER COMMANDS ---
         if (resp.action === "filter-toggle" && resp.tag) {
@@ -318,13 +318,13 @@ function highlightNetwork(centerItem) {
 function openInPanel(id, title) {
     const panel = document.getElementById('preview-panel'); const contentBox = document.getElementById('preview-content'); const titleHeader = document.getElementById('preview-title');
     titleHeader.innerText = title || "Loading..."; contentBox.innerHTML = "<div style='text-align:center; padding:20px;'><i class='fas fa-spinner fa-spin'></i> Loading...</div>"; panel.classList.add('open');
-    fetch(`/content?id=${id}`).then(r=>r.text()).then(html => { contentBox.innerHTML = html.trim().length ? html : "<p><i>No content.</i></p>"; const h1 = contentBox.querySelector('h1.node-title'); if (h1) { titleHeader.innerText = h1.innerText; h1.style.display = 'none'; } else if (!title) { const firstHeader = contentBox.querySelector('h1, h2'); if(firstHeader) titleHeader.innerText = firstHeader.innerText; } if (window.MathJax) MathJax.typesetPromise([contentBox]).catch(e=>{}); }).catch(e => contentBox.innerHTML = "Error.");
+    fetch(`/org-roam-timeline-content?id=${id}`).then(r=>r.text()).then(html => { contentBox.innerHTML = html.trim().length ? html : "<p><i>No content.</i></p>"; const h1 = contentBox.querySelector('h1.node-title'); if (h1) { titleHeader.innerText = h1.innerText; h1.style.display = 'none'; } else if (!title) { const firstHeader = contentBox.querySelector('h1, h2'); if(firstHeader) titleHeader.innerText = firstHeader.innerText; } if (window.MathJax) MathJax.typesetPromise([contentBox]).catch(e=>{}); }).catch(e => contentBox.innerHTML = "Error.");
 }
 function closePreview() { document.getElementById('preview-panel').classList.remove('open'); document.body.classList.remove('focus-mode'); currentSelectedId = null; const updates = []; rawData.forEach(item => { updates.push({ id: item.id, className: (item.className||"").replace(' highlighted', '') }); }); rawData.update(updates); requestAnimationFrame(drawConnections); }
 function stringToColor(str) { let hash = 0; for (let i=0; i<str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash); const h = Math.abs(hash % 360); const isLight = document.body.classList.contains('light-mode'); return `hsl(${h}, ${isLight?65:55}%, ${isLight?85:30}%)`; }
 function assignColorToItem(item) { const tag = (item.all_tags && item.all_tags.length) ? item.all_tags[0] : "Uncategorized"; const bg = stringToColor(tag); const txt = document.body.classList.contains('light-mode') ? '#333' : '#eee'; item.style = `background-color: ${bg}; border-color: ${bg}; color: ${txt};`; const baseClass = (item.className || "").split(' node-')[0]; item.className = `${baseClass} node-${item.id}`; }
 function toggleTheme() { document.body.classList.toggle('light-mode'); const updates = []; rawData.forEach(item => { assignColorToItem(item); updates.push(item); }); rawData.update(updates); renderFilters(); requestAnimationFrame(drawConnections); }
-function loadData() { fetch('/data').then(r=>r.json()).then(data => { const uniqueTags = new Set(); data.forEach(item => { if(!item.all_tags) item.all_tags = ["Uncategorized"]; item.all_tags.forEach(t=>uniqueTags.add(t)); assignColorToItem(item); delete item.title; }); allKnownTags = [...uniqueTags].sort(); if(activeTags.size===0) activeTags = new Set(allKnownTags); renderFilters(); rawData.clear(); rawData.add(data); timeline.fit(); updateButtonStates(); }); }
+function loadData() { fetch('/org-roam-timeline-data').then(r=>r.json()).then(data => { const uniqueTags = new Set(); data.forEach(item => { if(!item.all_tags) item.all_tags = ["Uncategorized"]; item.all_tags.forEach(t=>uniqueTags.add(t)); assignColorToItem(item); delete item.title; }); allKnownTags = [...uniqueTags].sort(); if(activeTags.size===0) activeTags = new Set(allKnownTags); renderFilters(); rawData.clear(); rawData.add(data); timeline.fit(); updateButtonStates(); }); }
 function updateButtonStates() { 
     const linkBtn = document.getElementById('link-btn'); if (showLinks) linkBtn.classList.add('active'); else linkBtn.classList.remove('active');
     const prevBtn = document.getElementById('preview-toggle-btn'); if (autoOpenPreview) prevBtn.classList.add('active'); else prevBtn.classList.remove('active');
@@ -333,7 +333,7 @@ function updateButtonStates() {
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
 function filterTagList() { const v = document.getElementById('tag-search').value.toLowerCase(); document.querySelectorAll('.filter-item').forEach(i => i.style.display = i.dataset.tag.includes(v)?'flex':'none'); }
 function toggleAll(en) { if(en) activeTags = new Set(allKnownTags); else activeTags.clear(); document.querySelectorAll('#filter-list input').forEach(c => c.checked = en); dataView.refresh(); }
-function openInEmacs() { if(currentSelectedId) fetch(`/open?id=${currentSelectedId}`); }
+function openInEmacs() { if(currentSelectedId) fetch(`/org-roam-timeline-open?id=${currentSelectedId}`); }
 function toggleLinks() { showLinks = !showLinks; updateButtonStates(); requestAnimationFrame(drawConnections); }
 function togglePreviewMode() { autoOpenPreview = !autoOpenPreview; updateButtonStates(); }
 function toggleFollowMode() { followModeEnabled = !followModeEnabled; updateButtonStates(); }

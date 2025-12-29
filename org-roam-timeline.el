@@ -123,7 +123,7 @@
        (t nil)))))
 
 ;; --- SERVLETS ---
-(defservlet* content text/html (id)
+(defservlet* org-roam-timeline-content text/html (id)
   (require 'ox-html)
   (let ((marker (org-id-find id 'marker)) (final-output ""))
     (if (not marker) (setq final-output (format "<h3>Error: ID %s not found.</h3>" id))
@@ -142,20 +142,20 @@
     (insert final-output)))
 
 ;; UPDATED CONFIG SERVLET (Sends preview setting)
-(defservlet* config text/json ()
+(defservlet* org-roam-timeline-config text/json ()
   (insert (json-encode `((theme . ,(symbol-name org-roam-timeline-default-theme))
                          (showLinks . ,(if org-roam-timeline-show-links-on-start t :json-false))
                          (followMode . ,(if org-roam-timeline-follow-mode-on-start t :json-false))
                          (autoPreview . ,(if org-roam-timeline-preview-on-start t :json-false))
                          (zoomWindow . ,org-roam-timeline-focus-window-years)))))
 
-(defservlet* data text/json () (insert (json-encode (org-roam-timeline--get-nodes))))
-(defservlet* node-data text/json (id)
+(defservlet* org-roam-timeline-data text/json () (insert (json-encode (org-roam-timeline--get-nodes))))
+(defservlet* org-roam-timeline-node-data text/json (id)
   (let ((node (org-roam-node-from-id id))) (if node (let ((item (org-roam-timeline--process-node node))) (if item (insert (json-encode item)) (insert "{}"))) (insert "{}"))))
-(defservlet* open text/plain (id) (let ((node (org-roam-node-from-id id))) (if node (progn (with-current-buffer (window-buffer (selected-window)) (org-roam-node-open node)) (insert "Opened")) (insert "Node not found"))))
+(defservlet* org-roam-timeline-open text/plain (id) (let ((node (org-roam-node-from-id id))) (if node (progn (with-current-buffer (window-buffer (selected-window)) (org-roam-node-open node)) (insert "Opened")) (insert "Node not found"))))
 
 ;; --- POLLING SERVLET ---
-(defservlet* current-focus text/json ()
+(defservlet* org-roam-timeline-current-focus text/json ()
   (let ((response '((action . "none"))))
 
     ;; 1. Filters
@@ -211,7 +211,7 @@
 
     (insert (json-encode response))))
 
-(defservlet* remove-date text/plain (id) (let ((node (org-roam-node-from-id id))) (if node (let ((file (org-roam-node-file node)) (point (org-roam-node-point node))) (with-current-buffer (find-file-noselect file) (goto-char point) (org-delete-property "TIMELINE_START") (org-delete-property "TIMELINE_END") (save-buffer)) (insert "Removed")) (insert "Node not found"))))
+(defservlet* org-roam-timeline-remove-date text/plain (id) (let ((node (org-roam-node-from-id id))) (if node (let ((file (org-roam-node-file node)) (point (org-roam-node-point node))) (with-current-buffer (find-file-noselect file) (goto-char point) (org-delete-property "TIMELINE_START") (org-delete-property "TIMELINE_END") (save-buffer)) (insert "Removed")) (insert "Node not found"))))
 
 ;; --- INTERACTIVE COMMANDS ---
 (defun org-roam-timeline-open ()
